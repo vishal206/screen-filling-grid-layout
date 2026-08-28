@@ -23,9 +23,11 @@
   },
   "scripts": {
     "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "check-publish": "publint",
     "check-exports": "attw --pack .",
-    "ci": "npm run build && npm run check-publish && npm run check-exports",
+    "ci": "npm run test && npm run build && npm run check-publish && npm run check-exports",
     "prepublishOnly": "npm run ci"
   },
   "devDependencies": {
@@ -33,6 +35,7 @@
     "@types/react": "^19.2.18",
     "publint": "^0.3.24",
     "tsup": "^8.5.1",
-    "typescript": "~5.9"
+    "typescript": "~5.9",
+    "vitest": "^4.1.11"
   }
 }
