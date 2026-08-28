@@ -1,0 +1,27 @@
+{
+  "name": "screen-filling-grid-layout",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "sideEffects": false,
+  "peerDependencies": {
+    "react": "^18.0.0 || ^19.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TODO-owner/screen-filling-grid-layout.git"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2"
+  }
+}
