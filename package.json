@@ -21,8 +21,17 @@
     "type": "git",
     "url": "git+https://github.com/TODO-owner/screen-filling-grid-layout.git"
   },
+  "scripts": {
+    "build": "tsup",
+    "check-publish": "publint",
+    "check-exports": "attw --pack .",
+    "ci": "npm run build && npm run check-publish && npm run check-exports",
+    "prepublishOnly": "npm run ci"
+  },
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
+    "publint": "^0.3.24",
     "tsup": "^8.5.1",
-    "typescript": "^7.0.2"
+    "typescript": "~5.9"
   }
 }
