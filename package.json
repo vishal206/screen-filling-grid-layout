@@ -22,6 +22,7 @@
     "url": "git+https://github.com/TODO-owner/screen-filling-grid-layout.git"
   },
   "devDependencies": {
+    "tsup": "^8.5.1",
     "typescript": "^7.0.2"
   }
 }
