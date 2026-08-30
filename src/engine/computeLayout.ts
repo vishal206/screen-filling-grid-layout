@@ -2,6 +2,30 @@ import type { GridItem, GridProps, Rect } from "../types.js";
 import { solveLayout, type SolverItem } from "./solve.js";
 import type { TrackGrid } from "./tracks.js";
 
+/** One item's placement on the track grid, plus the pixel box it works out to. */
+export interface LayoutCell {
+  /** Key of the item this cell was computed for. */
+  key: string;
+  /** 0-based column track of the cell's left edge. */
+  col: number;
+  /** 0-based row track of the cell's top edge. */
+  row: number;
+  /** Column tracks the cell occupies. */
+  cols: number;
+  /** Row tracks the cell occupies. */
+  rows: number;
+  /** The same box {@link computeLayout} reports for this item. */
+  rect: Rect;
+}
+
+/** The winning grid and the cells placed on it. */
+export interface LayoutPlan {
+  /** Track counts the solver settled on. */
+  grid: TrackGrid;
+  /** Placed cells, in the caller's item order. Dropped items are absent. */
+  cells: LayoutCell[];
+}
+
 /** Options accepted by {@link computeLayout}, mirroring the layout-affecting props. */
 export type ComputeLayoutOptions = Pick<
   GridProps,
@@ -43,11 +67,28 @@ export function computeLayout(
   container: { width: number; height: number },
   options: ComputeLayoutOptions = {},
 ): Rect[] {
+  return computeLayoutPlan(items, container, options).cells.map((cell) => cell.rect);
+}
+
+/**
+ * {@link computeLayout}, but keeping the track grid and whole-track spans it
+ * chose instead of reducing them to pixel boxes.
+ *
+ * Same solver, same result — a renderer that places items with CSS grid needs
+ * the spans, and a renderer that positions them itself needs the rects, so both
+ * come back together.
+ */
+export function computeLayoutPlan(
+  items: readonly GridItem[],
+  container: { width: number; height: number },
+  options: ComputeLayoutOptions = {},
+): LayoutPlan {
   const { width, height } = container;
+  const single: TrackGrid = { cols: 1, rows: 1 };
 
   // Nothing renderable: no items, or no space to render them into.
-  if (items.length === 0) return [];
-  if (!isPositive(width) || !isPositive(height)) return [];
+  if (items.length === 0) return { grid: single, cells: [] };
+  if (!isPositive(width) || !isPositive(height)) return { grid: single, cells: [] };
 
   const gap = options.gap ?? 0;
   if (!Number.isFinite(gap) || gap < 0) {
@@ -60,14 +101,16 @@ export function computeLayout(
   // Single item: it owns the container outright, so skip the grid search.
   if (items.length === 1) {
     const item = at(items, 0);
-    return [
-      constrainRatio(
-        { key: item.key, x: 0, y: 0, width, height },
-        item.ratio,
-        strict,
-        maxDeviation,
-      ),
-    ];
+    const rect = constrainRatio(
+      { key: item.key, x: 0, y: 0, width, height },
+      item.ratio,
+      strict,
+      maxDeviation,
+    );
+    return {
+      grid: single,
+      cells: [{ key: item.key, col: 0, row: 0, cols: 1, rows: 1, rect }],
+    };
   }
 
   // The widest floor any item asks for; every cell is at least one track wide,
@@ -88,7 +131,9 @@ export function computeLayout(
   }));
   const maxCandidates = orderingBudget(items.length);
 
-  let best: { grid: TrackGrid; rects: Rect[]; score: number; dropped: number } | undefined;
+  let best:
+    | { grid: TrackGrid; cells: LayoutCell[]; score: number; dropped: number }
+    | undefined;
 
   for (const grid of grids) {
     // Solve against the space left once gaps are removed, so track sizes and
@@ -104,21 +149,28 @@ export function computeLayout(
     const trackWidth = content.width / grid.cols;
     const trackHeight = content.height / grid.rows;
 
-    const rects = solved.layout.placements.map((placement) => {
+    const cells = solved.layout.placements.map((placement): LayoutCell => {
       const item = at(items, placement.index);
-      const cell: Rect = {
+      const box: Rect = {
         key: item.key,
         x: placement.col * (trackWidth + gap),
         y: placement.row * (trackHeight + gap),
         width: placement.cols * trackWidth + (placement.cols - 1) * gap,
         height: placement.rows * trackHeight + (placement.rows - 1) * gap,
       };
-      return constrainRatio(cell, item.ratio, strict, maxDeviation);
+      return {
+        key: item.key,
+        col: placement.col,
+        row: placement.row,
+        cols: placement.cols,
+        rows: placement.rows,
+        rect: constrainRatio(box, item.ratio, strict, maxDeviation),
+      };
     });
 
     const candidate = {
       grid,
-      rects,
+      cells,
       score: solved.score,
       dropped: solved.dropped.length,
     };
@@ -132,7 +184,7 @@ export function computeLayout(
     }
   }
 
-  return best?.rects ?? [];
+  return best ? { grid: best.grid, cells: best.cells } : { grid: single, cells: [] };
 }
 
 /**
