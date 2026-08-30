@@ -28,7 +28,8 @@
     "check-publish": "publint",
     "check-exports": "attw --pack .",
     "ci": "npm run test && npm run build && npm run check-publish && npm run check-exports",
-    "prepublishOnly": "npm run ci"
+    "prepublishOnly": "npm run ci",
+    "bench": "vitest bench --run"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
