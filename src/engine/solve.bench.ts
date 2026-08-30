@@ -36,3 +36,22 @@ for (const count of [6, 12, 24, 50, 100]) {
     }
   });
 }
+
+// The public entry point, which searches candidate grids on top of orderings.
+import { computeLayout } from "./computeLayout.js";
+import type { GridItem } from "../types.js";
+
+describe("computeLayout (grid search + orderings)", () => {
+  for (const count of [6, 12, 24, 50, 100]) {
+    const items: GridItem[] = makeItems(count).map((item, index) => ({
+      key: String(index),
+      ratio: item.ratio,
+      weight: item.weight,
+      render: () => null,
+    }));
+
+    bench(`${count} items`, () => {
+      computeLayout(items, CONTAINER);
+    });
+  }
+});
