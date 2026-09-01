@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode, RefObject } from "react";
 
 import { computeLayoutPlan } from "./engine/computeLayout.js";
-import type { GridProps } from "./types.js";
+import type { GridItem, GridProps, Rect } from "./types.js";
 
 /**
  * Container the solver reasons about for the very first paint, before the
@@ -72,6 +72,12 @@ function useContainerSize(
  * but the choice of track counts and spans depends on the container's aspect
  * ratio, and that choice is only correct for the aspect it was made at.
  *
+ * When `minCellWidth` (or an item's own `minWidth`) leaves room for less than
+ * two columns, the grid stops trying to fill the screen and stacks into one
+ * scrolling column at each item's declared ratio. Filling both axes with a
+ * single column would hold the width floor while squashing every cell far past
+ * its ratio - honouring the letter of the constraint and breaking its point.
+ *
  * `maxRatioDeviation` is honoured by the solver when it shapes spans, but the
  * letterboxing it implies is not drawn.
  */
@@ -95,6 +101,21 @@ export function Grid({
     measured !== undefined && measured.width > 0 && measured.height > 0
       ? measured
       : NOMINAL;
+
+  // The widest floor anyone asked for. Matches the engine's own reduction, so
+  // the component and the solver agree on when the floor bites.
+  const floor = items.reduce(
+    (widest, item) => Math.max(widest, item.minWidth ?? 0),
+    minCellWidth ?? 0,
+  );
+
+  // Same arithmetic as the engine's column cap: how many floor-width columns
+  // fit. At most one means the floor has forced a single column, and filling
+  // the height as well would squash every cell far past its declared ratio.
+  const stacked =
+    floor > 0 &&
+    items.length > 1 &&
+    Math.floor((box.width + gap) / (floor + gap)) <= 1;
 
   const [forcedCols, forcedRows] = tracks ?? [];
   const plan = useMemo(
@@ -130,6 +151,30 @@ export function Grid({
     (maxRatioDeviation !== undefined &&
       Number.isFinite(maxRatioDeviation) &&
       maxRatioDeviation >= 0);
+
+  if (stacked) {
+    return (
+      <div ref={container} style={stackedContainerStyle(gap)}>
+        {stackedRects(items, box.width, gap).map(({ item, rect }) => (
+          <div
+            key={item.key}
+            style={{
+              aspectRatio: String(item.ratio),
+              width: "100%",
+              overflow,
+              minWidth: 0,
+              cursor: onItemClick ? "pointer" : undefined,
+            }}
+            onClick={onItemClick ? () => onItemClick(item, rect) : undefined}
+            onPointerEnter={onItemHover ? () => onItemHover(item, rect) : undefined}
+            onPointerLeave={onItemHover ? () => onItemHover(null, null) : undefined}
+          >
+            {item.render(rect)}
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   const containerStyle: CSSProperties = {
     display: "grid",
@@ -176,6 +221,45 @@ export function Grid({
       })}
     </div>
   );
+}
+
+/**
+ * The stacked fallback: one column, rows sized by their own content rather than
+ * by an equal share of the container.
+ *
+ * The container keeps `height: 100%` and scrolls internally, so its box is still
+ * imposed by the parent and can never be set by what it contains - the same
+ * one-way relationship the single container observer depends on.
+ */
+function stackedContainerStyle(gap: number): CSSProperties {
+  return {
+    display: "grid",
+    gridTemplateColumns: "1fr",
+    gridAutoRows: "auto",
+    width: "100%",
+    height: "100%",
+    overflowY: "auto",
+    ...gapStyle(gap),
+  };
+}
+
+/**
+ * Rects for the stacked fallback. Each item takes the full width at its own
+ * declared ratio, so the height is exactly what `aspect-ratio` will resolve to
+ * and the rects stay truthful without measuring anything.
+ */
+function stackedRects(
+  items: readonly GridItem[],
+  width: number,
+  gap: number,
+): { item: GridItem; rect: Rect }[] {
+  let y = 0;
+  return items.map((item) => {
+    const height = item.ratio > 0 ? width / item.ratio : 0;
+    const rect: Rect = { key: item.key, x: 0, y, width, height };
+    y += height + gap;
+    return { item, rect };
+  });
 }
 
 /**
