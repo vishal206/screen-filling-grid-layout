@@ -1,15 +1,58 @@
-import type { CSSProperties, ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, ReactNode, RefObject } from "react";
 
 import { computeLayoutPlan } from "./engine/computeLayout.js";
 import type { GridItem, GridProps } from "./types.js";
 
 /**
- * Stand-in container the solver reasons about until the component measures its
- * own box. The solver only reads the container through its aspect ratio, so the
- * track grid this yields is right for any 16:9-ish container; the rects handed
- * to `render` are in these coordinates, not real screen pixels.
+ * Container the solver reasons about for the very first paint, before the
+ * observer has reported a real box. The solver reads the container only through
+ * its aspect ratio, so this yields a sane grid immediately and the measured size
+ * replaces it on the first layout pass.
  */
 const NOMINAL = { width: 1600, height: 900 };
+
+/** `useLayoutEffect` on the client, a no-op during server rendering. */
+const useIsomorphicLayoutEffect =
+  typeof window === "undefined" ? useEffect : useLayoutEffect;
+
+/**
+ * Reports the observed content box of `ref`'s element, or `undefined` until the
+ * first measurement lands.
+ *
+ * One observer, on the container, for the life of the component. It is the only
+ * thing in the component that reads layout back out of the DOM, and it reads a
+ * single box - not one per item. Sizes are only committed when they actually
+ * change, so a resize that rounds to the same box does not re-render.
+ */
+function useContainerSize(
+  ref: RefObject<HTMLDivElement | null>,
+): { width: number; height: number } | undefined {
+  const [size, setSize] = useState<{ width: number; height: number }>();
+
+  useIsomorphicLayoutEffect(() => {
+    const element = ref.current;
+    if (element === null) return;
+    if (typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (entry === undefined) return;
+
+      const { width, height } = entry.contentRect;
+      setSize((previous) =>
+        previous !== undefined && previous.width === width && previous.height === height
+          ? previous
+          : { width, height },
+      );
+    });
+
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [ref]);
+
+  return size;
+}
 
 /**
  * Renders `items` as a screen-filling grid.
@@ -24,8 +67,13 @@ const NOMINAL = { width: 1600, height: 900 };
  * rects it reports describe the same boxes. Gutters come out of the track
  * space, never out of the container - see the note on {@link gapStyle}.
  *
- * Not wired up yet: re-solving on resize. `maxRatioDeviation` is honoured by
- * the solver when it shapes spans, but the letterboxing it implies is not drawn.
+ * A single {@link ResizeObserver} on the container keeps the solved grid honest
+ * as the container changes size: the CSS handles the continuous part on its own,
+ * but the choice of track counts and spans depends on the container's aspect
+ * ratio, and that choice is only correct for the aspect it was made at.
+ *
+ * `maxRatioDeviation` is honoured by the solver when it shapes spans, but the
+ * letterboxing it implies is not drawn.
  */
 export function Grid({
   items,
@@ -38,13 +86,40 @@ export function Grid({
   onItemClick,
   onItemHover,
 }: GridProps): ReactNode {
-  const plan = computeLayoutPlan(items, NOMINAL, {
-    gap,
-    tracks,
-    strictRatio,
-    maxRatioDeviation,
-    minCellWidth,
-  });
+  const container = useRef<HTMLDivElement>(null);
+  const measured = useContainerSize(container);
+
+  // Before the first measurement, and for a container collapsed to nothing,
+  // fall back to the nominal box so the first paint still has a real grid.
+  const box =
+    measured !== undefined && measured.width > 0 && measured.height > 0
+      ? measured
+      : NOMINAL;
+
+  const [forcedCols, forcedRows] = tracks ?? [];
+  const plan = useMemo(
+    () =>
+      computeLayoutPlan(items, box, {
+        gap,
+        tracks: forcedCols !== undefined && forcedRows !== undefined
+          ? [forcedCols, forcedRows]
+          : undefined,
+        strictRatio,
+        maxRatioDeviation,
+        minCellWidth,
+      }),
+    [
+      items,
+      box.width,
+      box.height,
+      gap,
+      forcedCols,
+      forcedRows,
+      strictRatio,
+      maxRatioDeviation,
+      minCellWidth,
+    ],
+  );
 
   const byKey = new Map(items.map((item) => [item.key, item]));
 
@@ -60,7 +135,7 @@ export function Grid({
   };
 
   return (
-    <div style={containerStyle}>
+    <div ref={container} style={containerStyle}>
       {plan.cells.map((cell) => {
         const item = byKey.get(cell.key);
         if (item === undefined) return null;
