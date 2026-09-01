@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode, RefObject } from "react";
 
 import { computeLayoutPlan } from "./engine/computeLayout.js";
-import type { GridItem, GridProps } from "./types.js";
+import type { GridProps } from "./types.js";
 
 /**
  * Container the solver reasons about for the very first paint, before the
@@ -123,6 +123,14 @@ export function Grid({
 
   const byKey = new Map(items.map((item) => [item.key, item]));
 
+  // Whether the solver was asked to hold a shape at all. When it was not, cells
+  // take their whole track area and no `aspect-ratio` is emitted.
+  const constrained =
+    strictRatio ||
+    (maxRatioDeviation !== undefined &&
+      Number.isFinite(maxRatioDeviation) &&
+      maxRatioDeviation >= 0);
+
   const containerStyle: CSSProperties = {
     display: "grid",
     width: "100%",
@@ -147,7 +155,7 @@ export function Grid({
           minWidth: 0,
           minHeight: 0,
           cursor: onItemClick ? "pointer" : undefined,
-          ...strictRatioStyle(item, strictRatio),
+          ...ratioStyle(cell, constrained),
         };
 
         return (
@@ -185,11 +193,24 @@ function gapStyle(gap: number): CSSProperties {
 }
 
 /**
- * Under `strictRatio` the cell keeps its declared shape and sits centred in the
- * track area it was given, leaving the slack empty. `aspect-ratio` says that
- * without anyone computing a pixel box for it.
+ * States the shape the solver settled on - the exact ratio under `strictRatio`,
+ * or the nearest bound of `maxRatioDeviation` - as `aspect-ratio` on the
+ * wrapper, and centres it in the track area so the slack is left empty.
+ *
+ * The ratio is taken from the solved rect rather than re-derived, so CSS and
+ * {@link computeLayout} agree by construction. No pixel height is ever written
+ * to the DOM: `aspect-ratio` derives the height from whatever width the `fr`
+ * tracks work out to, at any container size, with no re-measurement.
  */
-function strictRatioStyle(item: GridItem, strict: boolean): CSSProperties {
-  if (!strict) return {};
-  return { aspectRatio: String(item.ratio), placeSelf: "center", maxWidth: "100%", maxHeight: "100%" };
+function ratioStyle(cell: { rect: { width: number; height: number } }, constrained: boolean): CSSProperties {
+  if (!constrained) return {};
+  const { width, height } = cell.rect;
+  if (!(width > 0) || !(height > 0)) return {};
+
+  return {
+    aspectRatio: `${width} / ${height}`,
+    placeSelf: "center",
+    maxWidth: "100%",
+    maxHeight: "100%",
+  };
 }
